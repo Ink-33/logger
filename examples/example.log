@@ -1,0 +1,13 @@
+2026/02/12 18:28:00 [ExampleApp] [INFO] Application started successfully
+2026/02/12 18:28:00 [ExampleApp] [WARN] High memory usage detected: 85%!
+(MISSING)
+2026/02/12 18:28:00 [ExampleApp] [INFO] Processing user request: userID=12345
+2026/02/12 18:28:00 [ExampleApp] [ERROR] Database connection timeout
+goroutine 1 [running]:
+runtime/debug.Stack()
+	C:/Program Files/Go/src/runtime/debug/stack.go:26 +0x5e
+github.com/Ink-33/logger.Error({0x7ff6173a7730, 0xc000096030?}, {0x0, 0x0, 0x0})
+	C:/Users/inku33/Desktop/golang/logger/logger.go:114 +0x56
+main.main()
+	C:/Users/inku33/Desktop/golang/logger/examples/main.go:54 +0x2ac
+2026/02/12 18:28:00 [ExampleApp] [INFO] Request processed successfully
