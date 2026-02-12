@@ -1,3 +1,3 @@
-module github.com/Ink-33/logger
+module repo.smlk.org/logger
 
 go 1.19
