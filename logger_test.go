@@ -108,3 +108,194 @@ func TestMultipleOperations(t *testing.T) {
 		t.Error("buf2 should contain second message")
 	}
 }
+
+func TestLogChannelBasic(t *testing.T) {
+	// 创建日志 channel
+	ch := GetLogChannel("test-channel")
+	
+	// 启动接收 goroutine
+	var wg sync.WaitGroup
+	wg.Add(1)
+	
+	receivedEntries := make([]LogEntry, 0, 3)
+	go func() {
+		defer wg.Done()
+		timeout := time.After(1 * time.Second)
+		
+		for i := 0; i < 3; i++ {
+			select {
+			case entry := <-ch:
+				receivedEntries = append(receivedEntries, entry)
+			case <-timeout:
+				t.Error("Timeout waiting for log entries")
+				return
+			}
+		}
+	}()
+	
+	// 发送日志
+	Info("Test info message")
+	Warn("Test warning message")
+	Error("Test error message")
+	
+	// 等待接收完成
+	wg.Wait()
+	
+	// 验证接收到的消息
+	if len(receivedEntries) != 3 {
+		t.Errorf("Expected 3 entries, got %d", len(receivedEntries))
+	}
+	
+	if receivedEntries[0].Level != "INFO" || !strings.Contains(receivedEntries[0].Message, "Test info message") {
+		t.Error("First entry mismatch")
+	}
+	
+	if receivedEntries[1].Level != "WARN" || !strings.Contains(receivedEntries[1].Message, "Test warning message") {
+		t.Error("Second entry mismatch")
+	}
+	
+	if receivedEntries[2].Level != "ERROR" || !strings.Contains(receivedEntries[2].Message, "Test error message") {
+		t.Error("Third entry mismatch")
+	}
+	
+	// 清理
+	RemoveLogChannel("test-channel")
+}
+
+func TestLogChannelDropOldest(t *testing.T) {
+	// 设置小缓冲区
+	SetChannelBufferSize(3)
+	
+	// 创建日志 channel
+	ch := GetLogChannel("drop-oldest")
+	
+	// 快速发送超过缓冲区大小的日志
+	messages := []string{"First", "Second", "Third", "Fourth", "Fifth"}
+	for _, msg := range messages {
+		Info(msg + " message")
+		time.Sleep(10 * time.Millisecond)
+	}
+	
+	// 收集所有接收到的消息
+	var received []string
+	timeout := time.After(500 * time.Millisecond)
+	
+collectLoop:
+	for {
+		select {
+		case entry := <-ch:
+			received = append(received, entry.Message)
+		case <-timeout:
+			break collectLoop
+		default:
+			// Channel empty，稍等一下继续尝试
+			time.Sleep(10 * time.Millisecond)
+			// 如果已经收集到足够多的消息就退出
+			if len(received) >= 3 {
+				break collectLoop
+			}
+		}
+	}
+	
+	// 验证行为：应该收到最新的3条消息，最旧的被丢弃
+	if len(received) != 3 {
+		t.Errorf("Expected 3 messages, got %d", len(received))
+	}
+	
+	// 验证收到的是最后3条消息（Third, Fourth, Fifth）
+	// 而不是前3条（First, Second, Third）
+	expectedLastThree := []string{"Third message", "Fourth message", "Fifth message"}
+	for i, expected := range expectedLastThree {
+		if i < len(received) && received[i] != expected {
+			t.Errorf("Expected '%s' at position %d, got '%s'", expected, i, received[i])
+		}
+	}
+	
+	// 清理
+	RemoveLogChannel("drop-oldest")
+}
+
+func TestMultipleLogChannels(t *testing.T) {
+	// 创建多个 channel
+	channel1 := GetLogChannel("channel-1")
+	channel2 := GetLogChannel("channel-2")
+	
+	var wg sync.WaitGroup
+	wg.Add(2)
+	
+	// 接收 channel 1 的消息
+	received1 := make([]LogEntry, 0, 2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 2; i++ {
+			select {
+			case entry := <-channel1:
+				received1 = append(received1, entry)
+			case <-time.After(1 * time.Second):
+				return
+			}
+		}
+	}()
+	
+	// 接收 channel 2 的消息
+	received2 := make([]LogEntry, 0, 2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 2; i++ {
+			select {
+			case entry := <-channel2:
+				received2 = append(received2, entry)
+			case <-time.After(1 * time.Second):
+				return
+			}
+		}
+	}()
+	
+	// 发送日志
+	Info("Shared message 1")
+	Warn("Shared message 2")
+	
+	// 等待接收完成
+	wg.Wait()
+	
+	// 验证两个 channel 都收到了相同的消息
+	if len(received1) != 2 || len(received2) != 2 {
+		t.Error("Not all channels received expected messages")
+	}
+	
+	// 验证消息内容一致
+	for i := 0; i < 2; i++ {
+		if received1[i].Message != received2[i].Message {
+			t.Errorf("Messages differ between channels at index %d", i)
+		}
+	}
+	
+	// 清理
+	RemoveLogChannel("channel-1")
+	RemoveLogChannel("channel-2")
+}
+
+func TestRemoveLogChannel(t *testing.T) {
+	GetLogChannel("temp-channel")
+	
+	// 验证 channel 存在
+	channelsMutex.RLock()
+	_, exists := logChannels["temp-channel"]
+	channelsMutex.RUnlock()
+	
+	if !exists {
+		t.Error("Channel should exist")
+	}
+	
+	// 移除 channel
+	RemoveLogChannel("temp-channel")
+	
+	// 验证 channel 已移除
+	channelsMutex.RLock()
+	_, exists = logChannels["temp-channel"]
+	channelsMutex.RUnlock()
+	
+	if exists {
+		t.Error("Channel should be removed")
+	}
+}
