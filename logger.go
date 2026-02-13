@@ -235,7 +235,7 @@ func Info(format string, args ...any) {
 		Level:      LevelInfo,
 		Message:    message,
 		Prefix:     GetPrefix(),
-		StackTrace: debug.Stack(),
+		StackTrace: []byte{}, // Info 级别不包含堆栈信息
 	}
 
 	// 广播到所有 channel
