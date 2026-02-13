@@ -1,4 +1,4 @@
-// Package logger provides simple logger 
+// Package logger provides simple logger
 package logger
 
 import (
@@ -11,6 +11,15 @@ import (
 	"time"
 )
 
+// LogLevel constants
+const (
+	LevelDebug = "DEBUG"
+	LevelInfo  = "INFO"
+	LevelWarn  = "WARN"
+	LevelError = "ERROR"
+	LevelFatal = "FATAL"
+)
+
 var (
 	logger        *log.Logger
 	multiWriter   io.Writer
@@ -18,7 +27,7 @@ var (
 	customWriter  io.Writer
 	writerMutex   sync.RWMutex
 	activeReader  *io.PipeWriter
-	
+
 	// Channel 相关变量
 	logChannels   map[string]chan LogEntry
 	channelsMutex sync.RWMutex
@@ -27,10 +36,11 @@ var (
 
 // LogEntry represents a log message entry
 type LogEntry struct {
-	Timestamp time.Time
-	Level     string
-	Message   string
-	Prefix    string
+	Timestamp  time.Time
+	Level      string
+	Message    string
+	Prefix     string
+	StackTrace []byte
 }
 
 // LogChannelConfig 配置日志 channel
@@ -39,19 +49,22 @@ type LogChannelConfig struct {
 	Timeout    time.Duration // 发送超时时间
 }
 
+var productName string
+
 func init() {
 	consoleWriter = os.Stdout
 	multiWriter = consoleWriter
 	logger = log.New(multiWriter, "", log.Ldate|log.Ltime|log.Lmsgprefix)
-	
+
 	// 初始化 channel 映射
 	logChannels = make(map[string]chan LogEntry)
-	
+
 	// TODO: add log rotation
 }
 
 // SetProductName updates the prefix
 func SetProductName(name string) {
+	productName = name
 	logger.SetPrefix(fmt.Sprintf("[%v] ", name))
 }
 
@@ -60,7 +73,7 @@ func SetProductName(name string) {
 func SetOutput(w io.Writer) {
 	writerMutex.Lock()
 	defer writerMutex.Unlock()
-	
+
 	customWriter = w
 	updateMultiWriter()
 }
@@ -70,23 +83,23 @@ func SetOutput(w io.Writer) {
 func GetReaderCopy() (io.Reader, error) {
 	writerMutex.Lock()
 	defer writerMutex.Unlock()
-	
+
 	if customWriter == nil {
 		return nil, fmt.Errorf("no custom writer set, call SetOutput first")
 	}
-	
+
 	// 如果已经有活跃的 reader，先关闭它
 	if activeReader != nil {
 		activeReader.Close()
 	}
-	
+
 	// 创建新的管道
 	reader, writer := io.Pipe()
 	activeReader = writer
-	
+
 	// 更新多写入器包含管道写入器
 	updateMultiWriter()
-	
+
 	return reader, nil
 }
 
@@ -94,7 +107,7 @@ func GetReaderCopy() (io.Reader, error) {
 func RemoveReaderCopy() {
 	writerMutex.Lock()
 	defer writerMutex.Unlock()
-	
+
 	if activeReader != nil {
 		activeReader.Close()
 		activeReader = nil
@@ -122,16 +135,16 @@ func GetLogChannel(name string) <-chan LogEntry {
 func GetLogChannelWithConfig(name string, config LogChannelConfig) <-chan LogEntry {
 	channelsMutex.Lock()
 	defer channelsMutex.Unlock()
-	
+
 	// 如果 channel 已存在，返回它
 	if ch, exists := logChannels[name]; exists {
 		return ch
 	}
-	
+
 	// 创建新的 channel
 	ch := make(chan LogEntry, config.BufferSize)
 	logChannels[name] = ch
-	
+
 	return ch
 }
 
@@ -139,7 +152,7 @@ func GetLogChannelWithConfig(name string, config LogChannelConfig) <-chan LogEnt
 func RemoveLogChannel(name string) {
 	channelsMutex.Lock()
 	defer channelsMutex.Unlock()
-	
+
 	if ch, exists := logChannels[name]; exists {
 		close(ch)
 		delete(logChannels, name)
@@ -151,7 +164,7 @@ func RemoveLogChannel(name string) {
 func broadcastToChannels(entry LogEntry) {
 	channelsMutex.RLock()
 	defer channelsMutex.RUnlock()
-	
+
 	for name, ch := range logChannels {
 		select {
 		case ch <- entry:
@@ -179,94 +192,113 @@ func broadcastToChannels(entry LogEntry) {
 // updateMultiWriter 更新多写入器配置
 func updateMultiWriter() {
 	writers := []io.Writer{consoleWriter}
-	
+
 	if customWriter != nil {
 		writers = append(writers, customWriter)
 	}
-	
+
 	if activeReader != nil {
 		writers = append(writers, activeReader)
 	}
-	
+
 	if len(writers) == 1 {
 		multiWriter = writers[0]
 	} else {
 		multiWriter = io.MultiWriter(writers...)
 	}
-	
+
 	logger.SetOutput(multiWriter)
+}
+
+// Debug prints log message with DEBUG level
+func Debug(format string, args ...any) {
+	message := fmt.Sprintf(format, args...)
+	entry := LogEntry{
+		Timestamp:  time.Now(),
+		Level:      LevelDebug,
+		Message:    message,
+		Prefix:     GetPrefix(),
+		StackTrace: debug.Stack(),
+	}
+
+	// 广播到所有 channel
+	broadcastToChannels(entry)
+
+	logger.Printf("[DEBUG] " + stripNewline(message) + "\n")
 }
 
 // Info prints log message with INFO level
 func Info(format string, args ...any) {
 	message := fmt.Sprintf(format, args...)
 	entry := LogEntry{
-		Timestamp: time.Now(),
-		Level:     "INFO",
-		Message:   message,
-		Prefix:    getPrefix(),
+		Timestamp:  time.Now(),
+		Level:      LevelInfo,
+		Message:    message,
+		Prefix:     GetPrefix(),
+		StackTrace: debug.Stack(),
 	}
-	
+
 	// 广播到所有 channel
 	broadcastToChannels(entry)
-	
-	logger.Printf("[INFO] "+stripNewline(message)+"\n")
+
+	logger.Printf("[INFO] " + stripNewline(message) + "\n")
 }
 
 // Warn prints log message with WARN level
 func Warn(format string, args ...any) {
 	message := fmt.Sprintf(format, args...)
 	entry := LogEntry{
-		Timestamp: time.Now(),
-		Level:     "WARN",
-		Message:   message,
-		Prefix:    getPrefix(),
+		Timestamp:  time.Now(),
+		Level:      LevelWarn,
+		Message:    message,
+		Prefix:     GetPrefix(),
+		StackTrace: debug.Stack(),
 	}
-	
+
 	// 广播到所有 channel
 	broadcastToChannels(entry)
-	
-	logger.Printf("[WARN] "+stripNewline(message)+"\n")
+
+	logger.Printf("[WARN] " + stripNewline(message) + "\n")
 }
 
 // Error prints log message with ERROR level
 func Error(format string, args ...any) {
 	message := fmt.Sprintf(format, args...)
 	entry := LogEntry{
-		Timestamp: time.Now(),
-		Level:     "ERROR",
-		Message:   message,
-		Prefix:    getPrefix(),
+		Timestamp:  time.Now(),
+		Level:      LevelError,
+		Message:    message,
+		Prefix:     GetPrefix(),
+		StackTrace: debug.Stack(),
 	}
-	
+
 	// 广播到所有 channel
 	broadcastToChannels(entry)
-	
-	logger.Printf("[ERROR] "+stripNewline(message)+"\n"+string(debug.Stack()))
+
+	logger.Printf("[ERROR] " + stripNewline(message) + "\n" + string(debug.Stack()))
 }
 
 // Fatal prints log message with FATAL level and calls os.Exit(1)
 func Fatal(format string, args ...any) {
 	message := fmt.Sprintf(format, args...)
 	entry := LogEntry{
-		Timestamp: time.Now(),
-		Level:     "FATAL",
-		Message:   message,
-		Prefix:    getPrefix(),
+		Timestamp:  time.Now(),
+		Level:      LevelFatal,
+		Message:    message,
+		Prefix:     GetPrefix(),
+		StackTrace: debug.Stack(),
 	}
-	
+
 	// 广播到所有 channel
 	broadcastToChannels(entry)
-	
-	logger.Printf("[FATAL] "+stripNewline(message)+"\n"+string(debug.Stack()))
+
+	logger.Printf("[FATAL] " + stripNewline(message) + "\n" + string(debug.Stack()))
 	os.Exit(1)
 }
 
-// getPrefix 获取当前的日志前缀
-func getPrefix() string {
-	// 这里需要从 logger 中提取前缀
-	// 由于 log.Logger 没有直接获取前缀的方法，我们暂时返回空字符串
-	return ""
+// GetPrefix 获取当前的日志前缀
+func GetPrefix() string {
+	return productName
 }
 
 func stripNewline(s string) string {
