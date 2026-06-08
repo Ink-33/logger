@@ -110,6 +110,10 @@ logger.RemoveLogChannel("small")
 - `SetProductName(name string)`
 - `SetOutput(w io.Writer)`
 - `SetChannelBufferSize(size int)`
+- `SetLevel(level string)`
+- `GetLevel() string`
+- `SetDebugStackTraceEnabled(enabled bool)`
+- `GetDebugStackTraceEnabled() bool`
 
 ### Reader Mirror
 
@@ -151,6 +155,7 @@ type LogChannelConfig struct {
 
 - `Fatal(...)` logs and then exits via `os.Exit(1)`.
 - `Error(...)` and `Fatal(...)` print stack traces to output.
+- `Debug(...)` prints stack trace only when `SetDebugStackTraceEnabled(true)` is enabled.
 - Channel `Timeout` is part of config type but is not currently used in send logic.
 
 ## Example Program

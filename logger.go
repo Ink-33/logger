@@ -43,6 +43,10 @@ var (
 		LevelError: 3,
 		LevelFatal: 4,
 	}
+
+	// Debug 级别堆栈打印控制
+	debugStackTraceEnabled bool
+	debugStackTraceMutex   sync.RWMutex
 )
 
 // LogEntry represents a log message entry
@@ -72,6 +76,9 @@ func init() {
 
 	// 默认日志等级为 DEBUG，输出所有日志
 	currentLevel = LevelDebug
+
+	// 默认不在 DEBUG 输出中打印堆栈
+	debugStackTraceEnabled = false
 
 	// TODO: add log rotation
 }
@@ -264,6 +271,22 @@ func shouldLog(level string) bool {
 	return msgPriority >= minPriority
 }
 
+// SetDebugStackTraceEnabled 设置是否在 DEBUG 日志输出中打印堆栈
+func SetDebugStackTraceEnabled(enabled bool) {
+	debugStackTraceMutex.Lock()
+	defer debugStackTraceMutex.Unlock()
+
+	debugStackTraceEnabled = enabled
+}
+
+// GetDebugStackTraceEnabled 获取 DEBUG 日志堆栈打印开关状态
+func GetDebugStackTraceEnabled() bool {
+	debugStackTraceMutex.RLock()
+	defer debugStackTraceMutex.RUnlock()
+
+	return debugStackTraceEnabled
+}
+
 // Debug prints log message with DEBUG level
 func Debug(format string, args ...any) {
 	message := fmt.Sprintf(format, args...)
@@ -279,7 +302,11 @@ func Debug(format string, args ...any) {
 	broadcastToChannels(entry)
 
 	if shouldLog(LevelDebug) {
-		logger.Printf("[DEBUG] " + stripNewline(message) + "\n")
+		if GetDebugStackTraceEnabled() {
+			logger.Printf("[DEBUG] " + stripNewline(message) + "\n" + string(entry.StackTrace))
+		} else {
+			logger.Printf("[DEBUG] " + stripNewline(message) + "\n")
+		}
 	}
 }
 

@@ -384,3 +384,39 @@ func TestLogLevelAllLevels(t *testing.T) {
 		}
 	}
 }
+
+func TestDebugStackTraceControl(t *testing.T) {
+	var buf bytes.Buffer
+	SetOutput(&buf)
+	SetLevel(LevelDebug)
+	defer func() {
+		SetLevel(LevelDebug)
+		SetDebugStackTraceEnabled(false)
+	}()
+
+	// 默认关闭 DEBUG 堆栈打印
+	SetDebugStackTraceEnabled(false)
+	if GetDebugStackTraceEnabled() {
+		t.Error("DEBUG stack trace should be disabled")
+	}
+
+	buf.Reset()
+	Debug("debug without stack")
+	withoutStack := buf.String()
+	if strings.Contains(withoutStack, "runtime/debug.Stack") {
+		t.Error("DEBUG output should not contain stack trace when disabled")
+	}
+
+	// 开启 DEBUG 堆栈打印
+	SetDebugStackTraceEnabled(true)
+	if !GetDebugStackTraceEnabled() {
+		t.Error("DEBUG stack trace should be enabled")
+	}
+
+	buf.Reset()
+	Debug("debug with stack")
+	withStack := buf.String()
+	if !strings.Contains(withStack, "runtime/debug.Stack") {
+		t.Error("DEBUG output should contain stack trace when enabled")
+	}
+}

@@ -110,6 +110,10 @@ logger.RemoveLogChannel("small")
 - `SetProductName(name string)` - 设置产品名称
 - `SetOutput(w io.Writer)` - 设置输出目标
 - `SetChannelBufferSize(size int)` - 设置通道缓冲区大小
+- `SetLevel(level string)` - 设置最低输出日志级别
+- `GetLevel() string` - 获取当前最低输出日志级别
+- `SetDebugStackTraceEnabled(enabled bool)` - 设置 DEBUG 日志是否打印堆栈
+- `GetDebugStackTraceEnabled() bool` - 获取 DEBUG 日志堆栈打印开关状态
 
 ### 读取器镜像
 
@@ -151,6 +155,7 @@ type LogChannelConfig struct {
 
 - `Fatal(...)` 记录日志后通过 `os.Exit(1)` 退出程序。
 - `Error(...)` 和 `Fatal(...)` 会在输出中打印堆栈跟踪。
+- `Debug(...)` 仅在调用 `SetDebugStackTraceEnabled(true)` 后才会在输出中打印堆栈跟踪。
 - 通道的 `Timeout` 是配置类型的一部分，但当前未在发送逻辑中使用。
 
 ## 示例程序
