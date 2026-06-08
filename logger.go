@@ -32,6 +32,17 @@ var (
 	logChannels   map[string]chan LogEntry
 	channelsMutex sync.RWMutex
 	bufferSize    = 100 // 默认缓冲区大小
+
+	// 日志等级控制
+	currentLevel  string
+	levelMutex    sync.RWMutex
+	levelPriority = map[string]int{
+		LevelDebug: 0,
+		LevelInfo:  1,
+		LevelWarn:  2,
+		LevelError: 3,
+		LevelFatal: 4,
+	}
 )
 
 // LogEntry represents a log message entry
@@ -58,6 +69,9 @@ func init() {
 
 	// 初始化 channel 映射
 	logChannels = make(map[string]chan LogEntry)
+
+	// 默认日志等级为 DEBUG，输出所有日志
+	currentLevel = LevelDebug
 
 	// TODO: add log rotation
 }
@@ -210,6 +224,46 @@ func updateMultiWriter() {
 	logger.SetOutput(multiWriter)
 }
 
+// SetLevel 设置最低日志等级
+// 低于该等级的日志将不会被输出
+// 可选值: LevelDebug, LevelInfo, LevelWarn, LevelError, LevelFatal
+func SetLevel(level string) {
+	levelMutex.Lock()
+	defer levelMutex.Unlock()
+
+	if _, ok := levelPriority[level]; ok {
+		currentLevel = level
+	} else {
+		fmt.Fprintf(os.Stderr, "WARNING: Invalid log level '%s', keeping current level '%s'\n", level, currentLevel)
+	}
+}
+
+// GetLevel 获取当前最低日志等级
+func GetLevel() string {
+	levelMutex.RLock()
+	defer levelMutex.RUnlock()
+
+	return currentLevel
+}
+
+// shouldLog 判断给定等级是否应该被记录
+func shouldLog(level string) bool {
+	levelMutex.RLock()
+	defer levelMutex.RUnlock()
+
+	msgPriority, ok := levelPriority[level]
+	if !ok {
+		return true // 未知等级默认允许
+	}
+
+	minPriority, ok := levelPriority[currentLevel]
+	if !ok {
+		return true
+	}
+
+	return msgPriority >= minPriority
+}
+
 // Debug prints log message with DEBUG level
 func Debug(format string, args ...any) {
 	message := fmt.Sprintf(format, args...)
@@ -224,7 +278,9 @@ func Debug(format string, args ...any) {
 	// 广播到所有 channel
 	broadcastToChannels(entry)
 
-	logger.Printf("[DEBUG] " + stripNewline(message) + "\n")
+	if shouldLog(LevelDebug) {
+		logger.Printf("[DEBUG] " + stripNewline(message) + "\n")
+	}
 }
 
 // Info prints log message with INFO level
@@ -241,7 +297,9 @@ func Info(format string, args ...any) {
 	// 广播到所有 channel
 	broadcastToChannels(entry)
 
-	logger.Printf("[INFO] " + stripNewline(message) + "\n")
+	if shouldLog(LevelInfo) {
+		logger.Printf("[INFO] " + stripNewline(message) + "\n")
+	}
 }
 
 // Warn prints log message with WARN level
@@ -258,7 +316,9 @@ func Warn(format string, args ...any) {
 	// 广播到所有 channel
 	broadcastToChannels(entry)
 
-	logger.Printf("[WARN] " + stripNewline(message) + "\n")
+	if shouldLog(LevelWarn) {
+		logger.Printf("[WARN] " + stripNewline(message) + "\n")
+	}
 }
 
 // Error prints log message with ERROR level
@@ -275,7 +335,9 @@ func Error(format string, args ...any) {
 	// 广播到所有 channel
 	broadcastToChannels(entry)
 
-	logger.Printf("[ERROR] " + stripNewline(message) + "\n" + string(debug.Stack()))
+	if shouldLog(LevelError) {
+		logger.Printf("[ERROR] " + stripNewline(message) + "\n" + string(debug.Stack()))
+	}
 }
 
 // Fatal prints log message with FATAL level and calls os.Exit(1)

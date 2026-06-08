@@ -299,3 +299,88 @@ func TestRemoveLogChannel(t *testing.T) {
 		t.Error("Channel should be removed")
 	}
 }
+
+func TestSetLevel(t *testing.T) {
+	// 默认应该是 DEBUG
+	if GetLevel() != LevelDebug {
+		t.Errorf("Default level should be DEBUG, got %s", GetLevel())
+	}
+
+	// 设置为 WARN
+	SetLevel(LevelWarn)
+	if GetLevel() != LevelWarn {
+		t.Errorf("Expected level WARN, got %s", GetLevel())
+	}
+
+	// 设置无效等级不应改变当前等级
+	SetLevel("INVALID")
+	if GetLevel() != LevelWarn {
+		t.Errorf("Level should remain WARN after invalid set, got %s", GetLevel())
+	}
+
+	// 恢复为 DEBUG
+	SetLevel(LevelDebug)
+}
+
+func TestLogLevelFiltering(t *testing.T) {
+	var buf bytes.Buffer
+	SetOutput(&buf)
+	defer func() {
+		SetLevel(LevelDebug)
+	}()
+
+	// 设置等级为 WARN，只输出 WARN、ERROR、FATAL
+	SetLevel(LevelWarn)
+
+	buf.Reset()
+	Debug("should not appear")
+	Info("should not appear")
+	Warn("should appear")
+	Error("should appear")
+
+	content := buf.String()
+
+	if strings.Contains(content, "should not appear") {
+		t.Error("DEBUG/INFO messages should be filtered out when level is WARN")
+	}
+	if !strings.Contains(content, "[WARN] should appear") {
+		t.Error("WARN message should be present")
+	}
+	if !strings.Contains(content, "[ERROR] should appear") {
+		t.Error("ERROR message should be present")
+	}
+}
+
+func TestLogLevelAllLevels(t *testing.T) {
+	var buf bytes.Buffer
+	SetOutput(&buf)
+	defer func() {
+		SetLevel(LevelDebug)
+	}()
+
+	// 测试每个等级只输出自身及以上
+	tests := []struct {
+		level    string
+		logFunc  func(string, ...any)
+		expected bool
+	}{
+		{LevelDebug, Debug, false}, // level=INFO, Debug 不应输出
+		{LevelInfo, Info, true},    // level=INFO, Info 应输出
+		{LevelWarn, Warn, true},    // level=INFO, Warn 应输出
+		{LevelError, Error, true},  // level=INFO, Error 应输出
+	}
+
+	SetLevel(LevelInfo)
+
+	for _, tt := range tests {
+		buf.Reset()
+		tt.logFunc("test %s message", tt.level)
+		content := buf.String()
+		hasOutput := len(content) > 0
+
+		if hasOutput != tt.expected {
+			t.Errorf("Level %s with min=INFO: expected output=%v, got output=%v (content: %q)",
+				tt.level, tt.expected, hasOutput, content)
+		}
+	}
+}
